@@ -111,6 +111,31 @@ impl SSTable {
 
         Ok(())
     }
+
+    pub fn get<R: Read + Seek>(&self, file: &mut R, key: &str) -> Option<String> {
+        if let Some(offset) = self.index.get(key) {
+            // FIX: Do proper error handling here.
+            file.seek(SeekFrom::Start(*offset as u64)).unwrap();
+            let key_len = {
+                let mut buffer = [0u8; size_of::<u32>()];
+                file.read_exact(&mut buffer).unwrap();
+                u32::from_le_bytes(buffer)
+            };
+
+            file.seek_relative(key_len as i64).unwrap();
+
+            let value_len = {
+                let mut buffer = [0u8; size_of::<u32>()];
+                file.read_exact(&mut buffer).unwrap();
+                u32::from_le_bytes(buffer)
+            };
+
+            let mut buf = vec![0; value_len as usize];
+            file.read_exact(&mut buf).unwrap();
+            return Some(String::from_utf8(buf).unwrap());
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -233,5 +258,24 @@ mod tests {
         let mut cursor = Cursor::new(&data);
         let mut sstable = SSTable::new();
         assert!(sstable.load_index(&mut cursor, data.len()).is_ok());
+    }
+
+    #[test]
+    fn test_get() {
+        let mut memtable = Memtable::new();
+        assert!(memtable.insert("foo", "bar").is_ok());
+        assert!(memtable.insert("aa", "bb").is_ok());
+
+        let mut data: Vec<u8> = Vec::new();
+        let mut sstable = SSTable::new();
+
+        assert!(sstable.flush(&mut data, &mut memtable).is_ok());
+
+        let mut cursor = Cursor::new(&data);
+        assert!(sstable.load_index(&mut cursor, data.len()).is_ok());
+
+        assert_eq!(sstable.get(&mut cursor, "foo"), Some("bar".to_owned()));
+        assert_eq!(sstable.get(&mut cursor, "aa"), Some("bb".to_owned()));
+        assert_eq!(sstable.get(&mut cursor, "bar"), None);
     }
 }
