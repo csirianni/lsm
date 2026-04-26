@@ -30,6 +30,10 @@ impl Memtable {
         self.entries.get(key).cloned()
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> {
+        self.entries.iter()
+    }
+
     pub fn size(&self) -> usize {
         self.size
     }
@@ -83,5 +87,23 @@ mod tests {
 
         assert!(memtable.insert("a", &"b".repeat(100)).is_ok());
         assert_eq!(memtable.size(), initial_size + 1 + 100);
+    }
+
+    #[test]
+    fn test_iter() {
+        let mut memtable = Memtable::new();
+
+        for i in 0..5 {
+            assert!(
+                memtable
+                    .insert(&format!("foo{}", i), &format!("bar{}", i))
+                    .is_ok()
+            );
+        }
+
+        for (i, (key, value)) in memtable.iter().enumerate() {
+            assert_eq!(*key, format!("foo{}", i));
+            assert_eq!(*value, format!("bar{}", i));
+        }
     }
 }
