@@ -13,6 +13,7 @@ pub struct SegmentManager {
 pub struct SSTable {
     // Sparse index mapping string keys to a byte offset representing the start of a block.
     index: BTreeMap<String, usize>,
+    // TODO: Store fd as a field?
 }
 
 impl SSTable {
@@ -40,7 +41,11 @@ impl SSTable {
     // Footer
     // ===========
     // index_offset: u64
-    pub fn flush(&mut self, file: &mut File, memtable: &Memtable) -> Result<(), std::io::Error> {
+    pub fn flush<W: Write>(
+        &mut self,
+        file: &mut W,
+        memtable: &Memtable,
+    ) -> Result<(), std::io::Error> {
         let mut offset = 0;
         for (key, value) in memtable.iter() {
             file.write_all(&(key.len() as u32).to_le_bytes())?;
@@ -48,14 +53,14 @@ impl SSTable {
             file.write_all(&(value.len() as u32).to_le_bytes())?;
             file.write_all(&(value.as_bytes()))?;
 
-            offset += size_of::<u32>() + key.len() + size_of::<u32>() + value.len();
             self.index.insert(key.clone(), offset);
+            offset += size_of::<u32>() + key.len() + size_of::<u32>() + value.len();
         }
 
         for (key, value) in self.index.iter() {
             file.write_all(&(key.len() as u32).to_le_bytes())?;
             file.write_all(&(key.as_bytes()))?;
-            file.write_all(&value.to_le_bytes())?;
+            file.write_all(&(*value as u64).to_le_bytes())?;
         }
 
         // TODO: Assert that offset == memtable.size(). The issue is that each data block contains 8
@@ -113,6 +118,100 @@ mod tests {
     use super::*;
     // Setting up a real File is much slower than an in-memory buffer, so we use a cursor instead.
     use std::io::Cursor;
+
+    #[test]
+    fn test_flush() {
+        let mut memtable = Memtable::new();
+        // TODO: Update test to use key/value with different lengths.
+        assert!(memtable.insert("foo", "bar").is_ok());
+        assert!(memtable.insert("aaa", "bbb").is_ok());
+
+        let mut data: Vec<u8> = Vec::new();
+        let mut sstable = SSTable::new();
+
+        assert!(sstable.flush(&mut data, &mut memtable).is_ok());
+
+        let expected_data_block_length = size_of::<u32>() + 3 + size_of::<u32>() + 3;
+        let expected_index_block_length = size_of::<u32>() + 3 + size_of::<u64>();
+        let expected_footer_length = size_of::<u64>();
+        let expected_length = expected_data_block_length * 2
+            + expected_index_block_length * 2
+            + expected_footer_length;
+
+        assert_eq!(data.len(), expected_length);
+
+        // Data blocks.
+        let mut offset = 0;
+        assert_eq!(&data[offset..size_of::<u32>()], &(3u32).to_le_bytes());
+
+        offset += size_of::<u32>();
+        assert_eq!(&data[offset..offset + 3], "aaa".as_bytes());
+
+        offset += 3;
+        assert_eq!(
+            &data[offset..offset + size_of::<u32>()],
+            &(3u32).to_le_bytes()
+        );
+
+        offset += size_of::<u32>();
+        assert_eq!(&data[offset..offset + 3], "bbb".as_bytes());
+
+        offset += 3;
+        assert_eq!(
+            &data[offset..offset + size_of::<u32>()],
+            &(3u32).to_le_bytes()
+        );
+
+        offset += size_of::<u32>();
+        assert_eq!(&data[offset..offset + 3], "foo".as_bytes());
+
+        offset += 3;
+        assert_eq!(
+            &data[offset..offset + size_of::<u32>()],
+            &(3u32).to_le_bytes()
+        );
+
+        offset += size_of::<u32>();
+        assert_eq!(&data[offset..offset + 3], "bar".as_bytes());
+
+        // Index blocks.
+        offset += 3;
+        assert_eq!(
+            &data[offset..offset + size_of::<u32>()],
+            &(3u32).to_le_bytes()
+        );
+
+        offset += size_of::<u32>();
+        assert_eq!(&data[offset..offset + 3], "aaa".as_bytes());
+
+        offset += 3;
+        assert_eq!(
+            &data[offset..offset + size_of::<u64>()],
+            &(0u64).to_le_bytes()
+        );
+
+        offset += size_of::<u64>();
+        assert_eq!(
+            &data[offset..offset + size_of::<u32>()],
+            &(3u32).to_le_bytes()
+        );
+
+        offset += size_of::<u32>();
+        assert_eq!(&data[offset..offset + 3], "foo".as_bytes());
+
+        offset += 3;
+        assert_eq!(
+            &data[offset..offset + size_of::<u64>()],
+            &(size_of::<u32>() + 3 + size_of::<u32>() + 3).to_le_bytes()
+        );
+
+        // Footer.
+        offset += size_of::<u64>();
+        assert_eq!(
+            &data[offset..offset + size_of::<u64>()],
+            &(28u64).to_le_bytes()
+        );
+    }
 
     #[test]
     fn test_load_index() {
