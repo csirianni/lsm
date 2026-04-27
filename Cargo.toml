@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 skiplist = "1.1.0"
+tempfile = "3.27.0"
