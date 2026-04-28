@@ -2,11 +2,10 @@
 
 **Log-Structured Merge-Tree** implementation.
 
-
 ## TODO
 
-- [] Memtable
-- [] SSTable
-- [] Merging
-- [] Compaction
-- [] Bloom filter
+- [ ] Memtable
+- [ ] SSTable
+- [ ] Merging
+- [ ] Compaction
+- [ ] Bloom filter
