@@ -1,19 +1,13 @@
 use std::collections::BTreeMap;
-use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
 use crate::memtable::Memtable;
-
-// Knows about all the segments (SSTables) on disk.
-pub struct SegmentManager {
-    // TODO: Need an ordered list of segment_ids or really just fds
-}
 
 /// Sorted Strings Table
 pub struct SSTable {
     // Sparse index mapping string keys to a byte offset representing the start of a block.
     index: BTreeMap<String, usize>,
-    // TODO: Store fd as a field?
+    // TODO: Store file field. Update type signatures
 }
 
 impl SSTable {
