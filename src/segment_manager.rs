@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::path::PathBuf;
 
 use crate::memtable::Memtable;
@@ -29,10 +29,17 @@ impl SegmentManager {
             self.next_segment_id
         )));
 
-        let mut file = File::create(path).unwrap();
+        // Create the file with both read and write permissions because the sstable can both flush
+        // to the file and read data from it.
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(path)
+            .unwrap();
 
-        let mut sstable = SSTable::new();
-        sstable.flush(&mut file, memtable).unwrap();
+        let mut sstable = SSTable::new(file);
+        sstable.flush(memtable).unwrap();
 
         assert!(
             self.segments
@@ -43,15 +50,10 @@ impl SegmentManager {
         self.next_segment_id += 1;
     }
 
-    pub fn get(&self, key: &str) -> Option<String> {
+    pub fn get(&mut self, key: &str) -> Option<String> {
         // Iterate in reverse order to read more recent segments first.
-        for (segment_id, sstable) in self.segments.iter().rev() {
-            let path = self
-                .dir
-                .join(PathBuf::from(format!("segment-{}.txt", segment_id)));
-
-            let mut file = File::open(path).unwrap();
-            if let Some(value) = sstable.get(&mut file, key) {
+        for (_, sstable) in self.segments.iter_mut().rev() {
+            if let Some(value) = sstable.get(key) {
                 return Some(value);
             }
         }
